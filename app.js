@@ -5,7 +5,21 @@
 
 const state = { timeline: null, labels: null, graph: null, coords: {}, lang: 'en',
                 idx: 0, tokens: {}, placeMarkers: {}, territoryLayers: {},
-                detail: null, playing: null };
+                temporalLayers: {}, validity: {}, detail: null, playing: null };
+
+// A geometry Feature may carry a time window (properties.valid_from / valid_until,
+// EDTF years). The map shows it only while the current frame's year is inside it —
+// this is how the base map itself changes across eras (e.g. the united pre-flood
+// landmass gives way after the flood). Features without a window are timeless.
+function edtfYear(s) { const n = parseInt(s, 10); return Number.isNaN(n) ? null : n; }
+function withinValidity(pid, year) {
+  const v = state.validity[pid];
+  if (!v) return true;                 // no window → always present
+  if (year === null) return false;     // "the beginning", before any event
+  if (v.from !== null && year < v.from) return false;
+  if (v.until !== null && year >= v.until) return false;
+  return true;
+}
 
 const map = L.map('map', { zoomControl: true, minZoom: 4, maxZoom: 10 })
   .setView([33.5, 40], 5);
@@ -223,6 +237,18 @@ function render(k, animate) {
   const persons = world.persons;
   renderTerritories(world.territories, animate);
 
+  // time-gated geometry: show base-map features only inside their year window
+  const yr = k === 0 ? null : state.timeline.frames[k - 1].year;
+  for (const [pid, layer] of Object.entries(state.temporalLayers)) {
+    if (withinValidity(pid, yr)) { if (!map.hasLayer(layer)) layer.addTo(map).bringToBack(); }
+    else if (map.hasLayer(layer)) map.removeLayer(layer);
+  }
+  for (const [pid, m] of Object.entries(state.placeMarkers)) {
+    if (!state.validity[pid]) continue;   // timeless points stay as-is
+    if (withinValidity(pid, yr)) { if (!map.hasLayer(m)) m.addTo(map); }
+    else if (map.hasLayer(m)) map.removeLayer(m);
+  }
+
   document.getElementById('year').textContent =
     k === 0 ? t('ui', 'beginning') : bc(state.timeline.frames[k - 1].year);
   document.getElementById('event-label').textContent =
@@ -360,6 +386,11 @@ window.bkeLoad().then(({ timeline, labels, geo, graph }) => {
 
   for (const feat of geo.features) {
     const pid = feat.properties.name_id;
+    const vf = feat.properties.valid_from, vu = feat.properties.valid_until;
+    if (vf !== undefined || vu !== undefined) {
+      state.validity[pid] = { from: vf !== undefined ? edtfYear(vf) : null,
+                              until: vu !== undefined ? edtfYear(vu) : null };
+    }
     if (feat.geometry.type === 'Point') {
       const [lon, lat] = feat.geometry.coordinates;
       state.coords[pid] = [lat, lon];
@@ -370,11 +401,20 @@ window.bkeLoad().then(({ timeline, labels, geo, graph }) => {
         .on('click', () => showDetail('place', pid)).addTo(map);
     } else if (feat.geometry.type === 'Polygon') {
       const ring = feat.geometry.coordinates[0].map(([lon, lat]) => [lat, lon]);
-      // built once, added to the map only when the territory becomes active
-      state.territoryLayers[pid] = L.polygon(ring, { color: '#7bd88f', weight: 2.5,
-        fillColor: '#7bd88f', fillOpacity: TERRITORY_FILL, opacity: 0.95, dashArray: '6 6' })
-        .bindTooltip(label(pid), { sticky: true, className: 'place-label' })
-        .on('click', () => showDetail('place', pid));
+      if (state.validity[pid]) {
+        // time-gated land mass (e.g. the united pre-flood earth): shown/hidden
+        // by year in render(), styled as land rather than as a granted territory.
+        state.temporalLayers[pid] = L.polygon(ring, { color: '#6b5a44', weight: 1.5,
+          fillColor: '#8a7355', fillOpacity: 0.28, opacity: 0.9 })
+          .bindTooltip(label(pid), { sticky: true, className: 'place-label' })
+          .on('click', () => showDetail('place', pid));
+      } else {
+        // built once, added to the map only when the territory becomes active
+        state.territoryLayers[pid] = L.polygon(ring, { color: '#7bd88f', weight: 2.5,
+          fillColor: '#7bd88f', fillOpacity: TERRITORY_FILL, opacity: 0.95, dashArray: '6 6' })
+          .bindTooltip(label(pid), { sticky: true, className: 'place-label' })
+          .on('click', () => showDetail('place', pid));
+      }
     }
   }
 
@@ -389,6 +429,7 @@ window.bkeLoad().then(({ timeline, labels, geo, graph }) => {
     // permanent/cached tooltips are set at bind time — update them explicitly
     for (const [pid, m] of Object.entries(state.placeMarkers)) m.setTooltipContent(label(pid));
     for (const [tid, m] of Object.entries(state.territoryLayers)) m.setTooltipContent(label(tid));
+    for (const [pid, m] of Object.entries(state.temporalLayers)) m.setTooltipContent(label(pid));
     applyChrome();             // static page chrome
     render(state.idx, false);  // panel roster + person tooltips + readout
     renderDetail();            // re-render an open detail in the new language
