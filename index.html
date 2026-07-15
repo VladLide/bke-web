@@ -13,8 +13,8 @@
 <body>
   <aside id="panel">
     <h1>Bible Knowledge Engine</h1>
-    <nav class="nav"><span class="here">Map & timeline</span> · <a href="graph.html">Knowledge graph</a></nav>
-    <p class="sub">The Abraham vertical slice — one canonical model, rendered as a map projection.</p>
+    <nav class="nav"><span class="here" data-i18n="navMap">Map &amp; timeline</span> · <a href="graph.html" data-i18n="navGraph">Knowledge graph</a></nav>
+    <p class="sub" data-i18n="sub">The Abraham vertical slice — one canonical model, rendered as a map projection.</p>
 
     <div class="readout">
       <div class="year" id="year">—</div>
@@ -22,7 +22,7 @@
     </div>
 
     <div class="row">
-      <label>Language
+      <label><span data-i18n="langLabel">Language</span>
         <select id="lang"><option value="en">English</option>
           <option value="uk">Українська</option><option value="he">עברית</option></select>
       </label>
@@ -31,12 +31,12 @@
     <ul id="people" class="people"></ul>
 
     <div class="legend">
-      <span><i class="dot alive"></i>alive</span>
-      <span><i class="dot dead"></i>dead</span>
-      <span><i class="dot route"></i>journey</span>
-      <span><i class="dot territory"></i>territory</span>
+      <span><i class="dot alive"></i><span data-i18n="legAlive">alive</span></span>
+      <span><i class="dot dead"></i><span data-i18n="legDead">dead</span></span>
+      <span><i class="dot route"></i><span data-i18n="legJourney">journey</span></span>
+      <span><i class="dot territory"></i><span data-i18n="legTerritory">territory</span></span>
     </div>
-    <p class="foot">Click a place or a person on the map for its relations,
+    <p class="foot" data-i18n="foot">Click a place or a person on the map for its relations,
       events, and sources. Data is precompiled by the BKE compiler — the browser
       applies state deltas and never re-interprets events.</p>
   </aside>

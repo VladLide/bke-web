@@ -31,7 +31,11 @@ const I18N = {
   en: {
     ui: { parents: 'Parents', spouse: 'Spouse', children: 'Children', hereNow: 'Here now',
           events: 'Events', eventsHere: 'Events here', sources: 'Sources', at: 'at',
-          beginning: 'Beginning', begin: 'Move the slider to begin.' },
+          beginning: 'Beginning', begin: 'Move the slider to begin.',
+          navMap: 'Map & timeline', navGraph: 'Knowledge graph', langLabel: 'Language',
+          sub: 'The Abraham vertical slice — one canonical model, rendered as a map projection.',
+          legAlive: 'alive', legDead: 'dead', legJourney: 'journey', legTerritory: 'territory',
+          foot: 'Click a place or a person on the map for its relations, events, and sources. Data is precompiled by the BKE compiler — the browser applies state deltas and never re-interprets events.' },
     status: { alive: 'alive', dead: 'dead', unborn: 'unborn' },
     conf: { confirmed: 'confirmed', probable: 'probable', possible: 'possible',
             tradition: 'tradition', unknown: 'unknown' },
@@ -55,7 +59,11 @@ const I18N = {
   uk: {
     ui: { parents: 'Батьки', spouse: 'Подружжя', children: 'Діти', hereNow: 'Тут зараз',
           events: 'Події', eventsHere: 'Події тут', sources: 'Джерела', at: 'у',
-          beginning: 'Початок', begin: 'Посуньте повзунок, щоб почати.' },
+          beginning: 'Початок', begin: 'Посуньте повзунок, щоб почати.',
+          navMap: 'Карта і час', navGraph: 'Граф знань', langLabel: 'Мова',
+          sub: 'Вертикальний зріз Авраама — одна канонічна модель як проекція на карту.',
+          legAlive: 'живий', legDead: 'помер', legJourney: 'подорож', legTerritory: 'територія',
+          foot: 'Клацніть місце або особу на карті, щоб побачити зв\'язки, події та джерела. Дані попередньо скомпільовані компілятором BKE — браузер застосовує дельти стану й ніколи не інтерпретує події заново.' },
     status: { alive: 'живий', dead: 'помер', unborn: 'ще не народжений' },
     conf: { confirmed: 'підтверджено', probable: 'ймовірно', possible: 'можливо',
             tradition: 'традиція', unknown: 'невідомо' },
@@ -80,6 +88,9 @@ const I18N = {
 function t(section, key) {
   const cur = I18N[state.lang] && I18N[state.lang][section];
   return (cur && cur[key]) || (I18N.en[section] && I18N.en[section][key]) || key;
+}
+function applyChrome() {   // translate static page chrome tagged with data-i18n
+  document.querySelectorAll('[data-i18n]').forEach(el => { el.textContent = t('ui', el.dataset.i18n); });
 }
 function kindLabel(lang, kind) {
   return (I18N[lang].kind && I18N[lang].kind[kind]) || (kind || '').replace(/_/g, ' ');
@@ -361,10 +372,12 @@ window.bkeLoad().then(({ timeline, labels, geo, graph }) => {
     // permanent/cached tooltips are set at bind time — update them explicitly
     for (const [pid, m] of Object.entries(state.placeMarkers)) m.setTooltipContent(label(pid));
     for (const [tid, m] of Object.entries(state.territoryLayers)) m.setTooltipContent(label(tid));
+    applyChrome();             // static page chrome
     render(state.idx, false);  // panel roster + person tooltips + readout
     renderDetail();            // re-render an open detail in the new language
   };
 
+  applyChrome();
   render(0, false);
   window.__bke = { state, map, routeLayer, go, render, foldState, showDetail };  // debug/test hook
 });
