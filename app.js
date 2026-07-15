@@ -318,6 +318,23 @@ function tween(marker, from, to, ms) {
   requestAnimationFrame(step);
 }
 
+// ---- declutter permanent place labels: hide a label only when its box would
+// overlap one already shown at the current zoom (markers stay clickable) ----
+function declutterLabels() {
+  const shown = [];
+  for (const pid of Object.keys(state.placeMarkers)) {
+    const tt = state.placeMarkers[pid].getTooltip && state.placeMarkers[pid].getTooltip();
+    const el = tt && tt.getElement && tt.getElement();
+    if (!el) continue;
+    const pt = map.latLngToContainerPoint(state.placeMarkers[pid].getLatLng());
+    const box = { x: pt.x + 6, y: pt.y - 8, w: label(pid).length * 6.5 + 12, h: 16 };
+    const hit = shown.some(b =>
+      !(box.x > b.x + b.w || box.x + box.w < b.x || box.y > b.y + b.h || box.y + box.h < b.y));
+    el.style.display = hit ? 'none' : '';
+    if (!hit) shown.push(box);
+  }
+}
+
 // ---- controls ----
 function go(k, animate) {
   k = Math.max(0, Math.min(state.timeline.frames.length, k));
@@ -375,9 +392,12 @@ window.bkeLoad().then(({ timeline, labels, geo, graph }) => {
     applyChrome();             // static page chrome
     render(state.idx, false);  // panel roster + person tooltips + readout
     renderDetail();            // re-render an open detail in the new language
+    declutterLabels();         // label widths changed with the language
   };
 
+  map.on('zoomend moveend', declutterLabels);
   applyChrome();
   render(0, false);
+  declutterLabels();
   window.__bke = { state, map, routeLayer, go, render, foldState, showDetail };  // debug/test hook
 });
