@@ -21,7 +21,77 @@ function label(id) {
   const l = state.labels[state.lang] || {};
   return l[id] || (state.labels.en && state.labels.en[id]) || id;
 }
+const nm = label;                      // event templates read cleaner as nm(...) — NOT L, that's Leaflet's global
 function bc(year) { return year < 0 ? `${-year} BC` : `${year} AD`; }
+
+// ---- UI i18n: chrome strings, controlled vocab, and per-language event
+// templates. Entity NAMES come from labels.json (compiler); everything else
+// here is app chrome and lives in the app. Missing key/lang → English fallback.
+const I18N = {
+  en: {
+    ui: { parents: 'Parents', spouse: 'Spouse', children: 'Children', hereNow: 'Here now',
+          events: 'Events', eventsHere: 'Events here', sources: 'Sources', at: 'at',
+          beginning: 'Beginning', begin: 'Move the slider to begin.' },
+    status: { alive: 'alive', dead: 'dead', unborn: 'unborn' },
+    conf: { confirmed: 'confirmed', probable: 'probable', possible: 'possible',
+            tradition: 'tradition', unknown: 'unknown' },
+    subtype: { patriarch: 'patriarch', matriarch: 'matriarch', person: 'person',
+               place: 'place', city: 'city', town: 'town', field: 'field', cave: 'cave',
+               mountain: 'mountain', region: 'region', land: 'land', well: 'well' },
+    kind: { binding: 'binding', blessing: 'blessing', deliverance: 'deliverance',
+            rename: 'renaming', dream: 'dream', famine: 'famine', expulsion: 'expulsion' },
+    ev: {
+      PersonBorn: p => `${nm(p.person)} is born at ${nm(p.place)}`,
+      PersonDied: p => `${nm(p.person)} dies at ${nm(p.place)}`,
+      Migration: p => `${p.subjects.map(nm).join(', ')} travel to ${nm(p.to)}`,
+      Marriage: p => `${nm(p.spouses[0])} marries ${nm(p.spouses[1])}`,
+      CovenantMade: p => `Covenant (${p.name || 'covenant'}) with ${p.parties.map(nm).join(', ')}`,
+      TerritoryGranted: p => `${nm(p.territory)} granted to ${nm(p.grantee)}`,
+      CityDestroyed: p => `${nm(p.city)} is destroyed`,
+      LandAcquired: p => `${nm(p.owner)} acquires ${nm(p.land)}`,
+      Occurrence: p => occ('en', p),
+    },
+  },
+  uk: {
+    ui: { parents: 'Батьки', spouse: 'Подружжя', children: 'Діти', hereNow: 'Тут зараз',
+          events: 'Події', eventsHere: 'Події тут', sources: 'Джерела', at: 'у',
+          beginning: 'Початок', begin: 'Посуньте повзунок, щоб почати.' },
+    status: { alive: 'живий', dead: 'помер', unborn: 'ще не народжений' },
+    conf: { confirmed: 'підтверджено', probable: 'ймовірно', possible: 'можливо',
+            tradition: 'традиція', unknown: 'невідомо' },
+    subtype: { patriarch: 'патріарх', matriarch: 'матріарх', person: 'особа',
+               place: 'місце', city: 'місто', town: 'містечко', field: 'поле', cave: 'печера',
+               mountain: 'гора', region: 'край', land: 'земля', well: 'колодязь' },
+    kind: { binding: 'жертвопринесення', blessing: 'благословення', deliverance: 'визволення',
+            rename: 'перейменування', dream: 'сон', famine: 'голод', expulsion: 'вигнання' },
+    ev: {
+      PersonBorn: p => `${nm(p.person)} народжується в ${nm(p.place)}`,
+      PersonDied: p => `${nm(p.person)} помирає в ${nm(p.place)}`,
+      Migration: p => `${p.subjects.map(nm).join(', ')} прямують до ${nm(p.to)}`,
+      Marriage: p => `${nm(p.spouses[0])} одружується з ${nm(p.spouses[1])}`,
+      CovenantMade: p => `Завіт (${p.name || 'завіт'}) з ${p.parties.map(nm).join(', ')}`,
+      TerritoryGranted: p => `${nm(p.territory)} даровано ${nm(p.grantee)}`,
+      CityDestroyed: p => `${nm(p.city)} зруйновано`,
+      LandAcquired: p => `${nm(p.owner)} набуває ${nm(p.land)}`,
+      Occurrence: p => occ('uk', p),
+    },
+  },
+};
+function t(section, key) {
+  const cur = I18N[state.lang] && I18N[state.lang][section];
+  return (cur && cur[key]) || (I18N.en[section] && I18N.en[section][key]) || key;
+}
+function kindLabel(lang, kind) {
+  return (I18N[lang].kind && I18N[lang].kind[kind]) || (kind || '').replace(/_/g, ' ');
+}
+function occ(lang, p) {
+  const who = (p.participants || []).map(nm).join(', ');
+  return kindLabel(lang, p.kind) + (who ? ': ' + who : '');
+}
+// clickable pill → opens that entity's detail (lets you reach overlapping markers)
+function pill(kind, id) {
+  return `<span class="d-link" data-kind="${kind}" data-id="${id}">${label(id)}</span>`;
+}
 
 // ---- state reconstruction: fold deltas 0..k across all namespaces ----
 function foldState(k) {
@@ -40,17 +110,11 @@ function statusOf(rec) {
   return rec.location ? 'dead' : 'unborn';
 }
 
-// ---- describe an event for the readout ----
+// ---- describe an event for the readout (per-language template) ----
 function describe(f) {
-  const p = f.payload, L = label;
-  switch (f.type) {
-    case 'PersonBorn':   return `${L(p.person)} is born at ${L(p.place)}`;
-    case 'PersonDied':   return `${L(p.person)} dies at ${L(p.place)}`;
-    case 'Migration':    return `${p.subjects.map(L).join(', ')} travel to ${L(p.to)}`;
-    case 'CovenantMade': return `Covenant (${p.name || 'covenant'}) with ${p.parties.map(L).join(', ')}`;
-    case 'TerritoryGranted': return `${L(p.territory)} granted to ${L(p.grantee)}`;
-    default:             return f.event;
-  }
+  const tpl = (I18N[state.lang] && I18N[state.lang].ev) || I18N.en.ev;
+  const fn = tpl[f.type] || I18N.en.ev[f.type];
+  return fn ? fn(f.payload, f) : f.event;
 }
 
 // ---- click-info: read-only details for a clicked place / person ----
@@ -78,27 +142,30 @@ function eventsInvolving(pid) {
   return state.timeline.frames.filter(f => {
     const p = f.payload;
     return p.person === pid || (p.subjects || []).includes(pid) || (p.parties || []).includes(pid)
-      || (p.spouses || []).includes(pid) || p.grantee === pid;
+      || (p.spouses || []).includes(pid) || (p.participants || []).includes(pid)
+      || p.grantee === pid || p.owner === pid || p.from === pid || p.agent === pid;
   });
 }
 function eventsAt(pl) {
   return state.timeline.frames.filter(f => {
-    const p = f.payload; return p.place === pl || p.from === pl || p.to === pl || p.territory === pl;
+    const p = f.payload;
+    return p.place === pl || p.from === pl || p.to === pl || p.territory === pl
+      || p.city === pl || p.land === pl;
   });
 }
 function evLine(f) {
   const cites = (f.sources || []).map(fmtRef).join(', ');
   return `<li><b>${bc(f.year)}</b> ${describe(f)}`
     + (cites ? ` <span class="d-cite">${cites}</span>` : '')
-    + (f.confidence ? ` <span class="d-conf">${f.confidence}</span>` : '') + '</li>';
+    + (f.confidence ? ` <span class="d-conf">${t('conf', f.confidence)}</span>` : '') + '</li>';
 }
-function relLine(arr, lbl) {
+function relLine(arr, key) {
   return arr.length
-    ? `<div class="d-rel"><span>${lbl}:</span> ${[...new Set(arr)].map(label).join(', ')}</div>` : '';
+    ? `<div class="d-rel"><span>${t('ui', key)}:</span> ${[...new Set(arr)].map(id => pill('person', id)).join(', ')}</div>` : '';
 }
 function srcBlock(srcs) {
   return (srcs && srcs.length)
-    ? `<div class="d-sec">Sources</div><ul class="d-list">${srcs.map(s => `<li>${fmtRef(s)}</li>`).join('')}</ul>` : '';
+    ? `<div class="d-sec">${t('ui', 'sources')}</div><ul class="d-list">${srcs.map(s => `<li>${fmtRef(s)}</li>`).join('')}</ul>` : '';
 }
 
 function showDetail(kind, id) { state.detail = { kind, id }; renderDetail(); }
@@ -110,29 +177,32 @@ function renderDetail() {
   const { kind, id } = state.detail;
   const node = nodeOf(id);
   let html = '<button class="d-close" title="Close">×</button>'
-    + `<div class="d-title">${label(id)} <span class="d-type">${node.subtype || node.type || kind}</span></div>`;
+    + `<div class="d-title">${label(id)} <span class="d-type">${t('subtype', node.subtype || node.type || kind)}</span></div>`;
 
   if (kind === 'person') {
     const rec = foldState(state.idx).persons[id] || {};
     const st = statusOf(rec);
-    html += `<div class="d-meta">${st}${rec.location ? ' at ' + label(rec.location) : ''}`
-      + `${rec.spouse ? ' · ⚭ ' + label(rec.spouse) : ''}</div>`;
+    html += `<div class="d-meta">${t('status', st)}${rec.location ? ' ' + t('ui', 'at') + ' ' + pill('place', rec.location) : ''}`
+      + `${rec.spouse ? ' · ⚭ ' + pill('person', rec.spouse) : ''}</div>`;
     const r = relationsOf(id);
-    html += relLine(r.parents, 'Parents') + relLine(r.spouses, 'Spouse') + relLine(r.children, 'Children');
+    html += relLine(r.parents, 'parents') + relLine(r.spouses, 'spouse') + relLine(r.children, 'children');
     const evs = eventsInvolving(id);
-    if (evs.length) html += `<div class="d-sec">Events</div><ul class="d-list">${evs.map(evLine).join('')}</ul>`;
+    if (evs.length) html += `<div class="d-sec">${t('ui', 'events')}</div><ul class="d-list">${evs.map(evLine).join('')}</ul>`;
   } else {
-    html += `<div class="d-meta">${node.subtype || 'place'}</div>`;
+    html += `<div class="d-meta">${t('subtype', node.subtype || 'place')}</div>`;
     const here = Object.entries(foldState(state.idx).persons)
       .filter(([, rec]) => rec.location === id).map(([pid]) => pid);
-    html += relLine(here, 'Here now');
+    html += relLine(here, 'hereNow');
     const evs = eventsAt(id);
-    if (evs.length) html += `<div class="d-sec">Events here</div><ul class="d-list">${evs.map(evLine).join('')}</ul>`;
+    if (evs.length) html += `<div class="d-sec">${t('ui', 'eventsHere')}</div><ul class="d-list">${evs.map(evLine).join('')}</ul>`;
   }
   html += srcBlock(node.sources);
   box.innerHTML = html;
   box.hidden = false;
   box.querySelector('.d-close').onclick = closeDetail;
+  // clickable relations / roster → navigate to that entity (reaches overlapping markers)
+  box.querySelectorAll('.d-link').forEach(el =>
+    el.onclick = () => showDetail(el.dataset.kind, el.dataset.id));
 }
 
 // ---- render frame k, optionally animating the k-th transition ----
@@ -143,9 +213,9 @@ function render(k, animate) {
   renderTerritories(world.territories, animate);
 
   document.getElementById('year').textContent =
-    k === 0 ? 'Beginning' : bc(state.timeline.frames[k - 1].year);
+    k === 0 ? t('ui', 'beginning') : bc(state.timeline.frames[k - 1].year);
   document.getElementById('event-label').textContent =
-    k === 0 ? 'Move the slider to begin.' : describe(state.timeline.frames[k - 1]);
+    k === 0 ? t('ui', 'begin') : describe(state.timeline.frames[k - 1]);
   document.getElementById('counter').textContent = `${k} / ${state.timeline.frames.length}`;
   document.getElementById('slider').value = k;
 

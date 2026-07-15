@@ -92,3 +92,5 @@ main { position: relative; }
 .d-list li:first-child { border-top: none; }
 .d-cite { color: #4a9eff; font-size: 11px; }
 .d-conf { color: #6b7280; font-size: 10px; text-transform: uppercase; margin-left: 4px; }
+.d-link { color: #cdd4de; cursor: pointer; border-bottom: 1px dashed #3a424e; }
+.d-link:hover { color: #4a9eff; border-bottom-color: #4a9eff; }
