@@ -3,8 +3,9 @@
 // The browser consumes precompiled state deltas; it does NOT interpret events.
 // Event type/payload is used only to decide how to *animate* a change.
 
-const state = { timeline: null, labels: null, coords: {}, lang: 'en',
-                idx: 0, tokens: {}, placeMarkers: {}, territoryLayers: {}, playing: null };
+const state = { timeline: null, labels: null, graph: null, coords: {}, lang: 'en',
+                idx: 0, tokens: {}, placeMarkers: {}, territoryLayers: {},
+                detail: null, playing: null };
 
 const map = L.map('map', { zoomControl: true, minZoom: 4, maxZoom: 10 })
   .setView([33.5, 40], 5);
@@ -50,6 +51,88 @@ function describe(f) {
     case 'TerritoryGranted': return `${L(p.territory)} granted to ${L(p.grantee)}`;
     default:             return f.event;
   }
+}
+
+// ---- click-info: read-only details for a clicked place / person ----
+// Pure display, from data the API already ships — never changes map state.
+function fmtRef(ref) {
+  const m = /^reference\.([a-z0-9_]+)\.(\d+)\.(\d+)$/.exec(ref);
+  if (!m) return ref.replace(/^source\./, '');
+  return `${m[1][0].toUpperCase()}${m[1].slice(1)} ${m[2]}:${m[3]}`;
+}
+function nodeOf(id) { return (state.graph && state.graph.nodes || []).find(n => n.id === id) || {}; }
+function relationsOf(pid) {
+  const r = { parents: [], children: [], spouses: [] };
+  for (const e of (state.graph && state.graph.edges) || []) {
+    if (e.rel === 'parent_of') {
+      if (e.target === pid) r.parents.push(e.source);
+      if (e.source === pid) r.children.push(e.target);
+    } else if (e.rel === 'spouse') {
+      if (e.source === pid) r.spouses.push(e.target);
+      if (e.target === pid) r.spouses.push(e.source);
+    }
+  }
+  return r;
+}
+function eventsInvolving(pid) {
+  return state.timeline.frames.filter(f => {
+    const p = f.payload;
+    return p.person === pid || (p.subjects || []).includes(pid) || (p.parties || []).includes(pid)
+      || (p.spouses || []).includes(pid) || p.grantee === pid;
+  });
+}
+function eventsAt(pl) {
+  return state.timeline.frames.filter(f => {
+    const p = f.payload; return p.place === pl || p.from === pl || p.to === pl || p.territory === pl;
+  });
+}
+function evLine(f) {
+  const cites = (f.sources || []).map(fmtRef).join(', ');
+  return `<li><b>${bc(f.year)}</b> ${describe(f)}`
+    + (cites ? ` <span class="d-cite">${cites}</span>` : '')
+    + (f.confidence ? ` <span class="d-conf">${f.confidence}</span>` : '') + '</li>';
+}
+function relLine(arr, lbl) {
+  return arr.length
+    ? `<div class="d-rel"><span>${lbl}:</span> ${[...new Set(arr)].map(label).join(', ')}</div>` : '';
+}
+function srcBlock(srcs) {
+  return (srcs && srcs.length)
+    ? `<div class="d-sec">Sources</div><ul class="d-list">${srcs.map(s => `<li>${fmtRef(s)}</li>`).join('')}</ul>` : '';
+}
+
+function showDetail(kind, id) { state.detail = { kind, id }; renderDetail(); }
+function closeDetail() { state.detail = null; document.getElementById('detail').hidden = true; }
+
+function renderDetail() {
+  const box = document.getElementById('detail');
+  if (!state.detail) { box.hidden = true; return; }
+  const { kind, id } = state.detail;
+  const node = nodeOf(id);
+  let html = '<button class="d-close" title="Close">×</button>'
+    + `<div class="d-title">${label(id)} <span class="d-type">${node.subtype || node.type || kind}</span></div>`;
+
+  if (kind === 'person') {
+    const rec = foldState(state.idx).persons[id] || {};
+    const st = statusOf(rec);
+    html += `<div class="d-meta">${st}${rec.location ? ' at ' + label(rec.location) : ''}`
+      + `${rec.spouse ? ' · ⚭ ' + label(rec.spouse) : ''}</div>`;
+    const r = relationsOf(id);
+    html += relLine(r.parents, 'Parents') + relLine(r.spouses, 'Spouse') + relLine(r.children, 'Children');
+    const evs = eventsInvolving(id);
+    if (evs.length) html += `<div class="d-sec">Events</div><ul class="d-list">${evs.map(evLine).join('')}</ul>`;
+  } else {
+    html += `<div class="d-meta">${node.subtype || 'place'}</div>`;
+    const here = Object.entries(foldState(state.idx).persons)
+      .filter(([, rec]) => rec.location === id).map(([pid]) => pid);
+    html += relLine(here, 'Here now');
+    const evs = eventsAt(id);
+    if (evs.length) html += `<div class="d-sec">Events here</div><ul class="d-list">${evs.map(evLine).join('')}</ul>`;
+  }
+  html += srcBlock(node.sources);
+  box.innerHTML = html;
+  box.hidden = false;
+  box.querySelector('.d-close').onclick = closeDetail;
 }
 
 // ---- render frame k, optionally animating the k-th transition ----
@@ -101,6 +184,7 @@ function render(k, animate) {
     if (!tok) {
       tok = L.circleMarker(latlng, { radius: 6, color: '#0e1013', weight: 1.5,
         fillColor: color, fillOpacity: 0.95 }).bindTooltip(label(pid), { direction: 'top' });
+      tok.on('click', () => showDetail('person', pid));
       tok.addTo(map); state.tokens[pid] = tok;
     }
     tok.setStyle({ fillColor: color });
@@ -110,6 +194,8 @@ function render(k, animate) {
     if (moved) tween(tok, tok.getLatLng(), L.latLng(latlng), 700);
     else tok.setLatLng(latlng);
   }
+
+  renderDetail();  // refresh an open detail panel for the new frame
 }
 
 const TERRITORY_FILL = 0.16;
@@ -171,8 +257,8 @@ function stop() {
 }
 
 // ---- boot ----
-window.bkeLoad().then(({ timeline, labels, geo }) => {
-  state.timeline = timeline; state.labels = labels;
+window.bkeLoad().then(({ timeline, labels, geo, graph }) => {
+  state.timeline = timeline; state.labels = labels; state.graph = graph;
 
   for (const feat of geo.features) {
     const pid = feat.properties.name_id;
@@ -182,13 +268,15 @@ window.bkeLoad().then(({ timeline, labels, geo }) => {
       state.placeMarkers[pid] = L.circleMarker([lat, lon], { radius: 4, color: '#cbd2db',
         weight: 1, fillColor: '#9aa2ad', fillOpacity: 0.85 })
         .bindTooltip(label(pid), { permanent: true, direction: 'right',
-          className: 'place-label', offset: [6, 0] }).addTo(map);
+          className: 'place-label', offset: [6, 0] })
+        .on('click', () => showDetail('place', pid)).addTo(map);
     } else if (feat.geometry.type === 'Polygon') {
       const ring = feat.geometry.coordinates[0].map(([lon, lat]) => [lat, lon]);
       // built once, added to the map only when the territory becomes active
       state.territoryLayers[pid] = L.polygon(ring, { color: '#7bd88f', weight: 2.5,
         fillColor: '#7bd88f', fillOpacity: TERRITORY_FILL, opacity: 0.95, dashArray: '6 6' })
-        .bindTooltip(label(pid), { sticky: true, className: 'place-label' });
+        .bindTooltip(label(pid), { sticky: true, className: 'place-label' })
+        .on('click', () => showDetail('place', pid));
     }
   }
 
@@ -204,8 +292,9 @@ window.bkeLoad().then(({ timeline, labels, geo }) => {
     for (const [pid, m] of Object.entries(state.placeMarkers)) m.setTooltipContent(label(pid));
     for (const [tid, m] of Object.entries(state.territoryLayers)) m.setTooltipContent(label(tid));
     render(state.idx, false);  // panel roster + person tooltips + readout
+    renderDetail();            // re-render an open detail in the new language
   };
 
   render(0, false);
-  window.__bke = { state, map, routeLayer, go, render, foldState };  // debug/test hook
+  window.__bke = { state, map, routeLayer, go, render, foldState, showDetail };  // debug/test hook
 });
