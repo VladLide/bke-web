@@ -16,14 +16,15 @@ window.bkeLoad = async function () {
     return r.json();
   });
   const manifest = await get('manifest.json');
-  const [initial, labels, geo, graph] = await Promise.all([
+  const [initial, labels, geo, graph, sources] = await Promise.all([
     get(manifest.timeline.initial), get(manifest.labels),
     get(manifest.geometry), get(manifest.graph),
+    manifest.sources ? get(manifest.sources) : Promise.resolve({}),
   ]);
   const eras = await Promise.all(manifest.timeline.eras.map(e => get(e.file)));
   return {
     manifest,
     timeline: { model: manifest.model, years: manifest.years, initial, frames: eras.flat() },
-    labels, geo, graph,
+    labels, geo, graph, sources,
   };
 };

@@ -5,7 +5,7 @@
 
 const state = { timeline: null, labels: null, graph: null, coords: {}, lang: 'en',
                 idx: 0, tokens: {}, placeMarkers: {}, territoryLayers: {},
-                temporalLayers: {}, validity: {}, detail: null, playing: null };
+                temporalLayers: {}, validity: {}, sources: {}, verseCache: {}, detail: null, playing: null };
 
 // A geometry Feature may carry a time window (properties.valid_from / valid_until,
 // EDTF years). The map shows it only while the current frame's year is inside it —
@@ -189,8 +189,47 @@ function relLine(arr, key) {
     ? `<div class="d-rel"><span>${t('ui', key)}:</span> ${[...new Set(arr)].map(id => pill('person', id)).join(', ')}</div>` : '';
 }
 function srcBlock(srcs) {
-  return (srcs && srcs.length)
-    ? `<div class="d-sec">${t('ui', 'sources')}</div><ul class="d-list">${srcs.map(s => `<li>${fmtRef(s)}</li>`).join('')}</ul>` : '';
+  if (!srcs || !srcs.length) return '';
+  const li = srcs.map(s => {
+    const q = /^reference\./.test(s) ? `<div class="verse-quote" data-ref="${s}"></div>` : '';
+    return `<li>${fmtRef(s)}${q}</li>`;
+  }).join('');
+  return `<div class="d-sec">${t('ui', 'sources')}</div><ul class="d-list">${li}</ul>`;
+}
+
+// ---- live verse text: sources are first-class. The registry (sources.json)
+// says WHERE each source's text lives; we fetch chapters on demand from the
+// remote corpus (CORS), cache them, and re-address via the source's verse_map
+// when its versification differs from the canonical reference id.
+function displaySource(book) {
+  for (const rec of Object.values(state.sources || {})) {
+    if (rec.location === 'remote' && rec.url_template && rec.books && rec.books[book] != null) return rec;
+  }
+  return null;
+}
+async function verseText(ref) {
+  const m = /^reference\.([a-z0-9_]+)\.(\d+)\.(\d+)$/.exec(ref);
+  if (!m) return null;
+  const src = displaySource(m[1]);
+  if (!src) return null;
+  let ch = +m[2], v = +m[3];
+  const mapped = src.verse_map && src.verse_map[ref];       // "ch:v" in source numbering
+  if (mapped) { const p = mapped.split(':'); ch = +p[0]; v = +p[1]; }
+  const key = `${src.id}|${m[1]}|${ch}`;
+  if (!state.verseCache[key]) {
+    const url = src.url_template.replace('{book_nr}', src.books[m[1]]).replace('{chapter}', ch);
+    state.verseCache[key] = fetch(url).then(r => r.ok ? r.json() : null).catch(() => null);
+  }
+  const data = await state.verseCache[key];
+  if (!data || !data.verses) return null;
+  const rec = data.verses.find(x => +x.verse === v);
+  return rec ? { text: rec.text.trim(), source: src.title || src.id } : null;
+}
+function fillVerseQuotes(box) {
+  box.querySelectorAll('.verse-quote[data-ref]').forEach(async el => {
+    const r = await verseText(el.dataset.ref);
+    if (r && el.isConnected) el.innerHTML = `«${r.text}» <span class="verse-src">— ${r.source}</span>`;
+  });
 }
 
 function showDetail(kind, id) { state.detail = { kind, id }; renderDetail(); }
@@ -224,6 +263,7 @@ function renderDetail() {
   html += srcBlock(node.sources);
   box.innerHTML = html;
   box.hidden = false;
+  fillVerseQuotes(box);
   box.querySelector('.d-close').onclick = closeDetail;
   // clickable relations / roster → navigate to that entity (reaches overlapping markers)
   box.querySelectorAll('.d-link').forEach(el =>
@@ -381,8 +421,8 @@ function stop() {
 }
 
 // ---- boot ----
-window.bkeLoad().then(({ timeline, labels, geo, graph }) => {
-  state.timeline = timeline; state.labels = labels; state.graph = graph;
+window.bkeLoad().then(({ timeline, labels, geo, graph, sources }) => {
+  state.timeline = timeline; state.labels = labels; state.graph = graph; state.sources = sources || {};
 
   for (const feat of geo.features) {
     const pid = feat.properties.name_id;
@@ -440,5 +480,5 @@ window.bkeLoad().then(({ timeline, labels, geo, graph }) => {
   applyChrome();
   render(0, false);
   declutterLabels();
-  window.__bke = { state, map, routeLayer, go, render, foldState, showDetail };  // debug/test hook
+  window.__bke = { state, map, routeLayer, go, render, foldState, showDetail, verseText };  // debug/test hook
 });
